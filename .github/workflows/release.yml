@@ -8,61 +8,59 @@ on:
       - "v*"
 
 jobs:
-  build:
+  Build-OpenWrt:
     runs-on: ubuntu-latest
-    
+    env:
+      APP_NAME: GUI.for.SingBox
     steps:
-      # Шаг 1: Проверка состояния репозитория
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Шаг 2: Установка необходимых зависимостей
+      # Установка зависимостей
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y wget build-essential libncurses5-dev libssl-dev gettext gcc g++ unzip
 
-      # Шаг 3: Скачивание OpenWrt SDK для aarch64
+      # Скачивание актуального OpenWrt SDK для aarch64
       - name: Download OpenWrt SDK for aarch64
         run: |
-          wget https://downloads.openwrt.org/snapshots/targets/armvirt/64/openwrt-sdk-armvirt-64_gcc-8.4.0_musl.Linux-x86_64.tar.xz
-          tar -xvf openwrt-sdk-armvirt-64_gcc-8.4.0_musl.Linux-x86_64.tar.xz
-          export SDK_PATH=$(pwd)/openwrt-sdk-armvirt-64*/staging_dir/toolchain-arm_cortex-a53_gcc-8.4.0_musl/bin
+          wget https://downloads.openwrt.org/snapshots/targets/armvirt/64/openwrt-sdk-armvirt-64_gcc-10.3.0_musl.Linux-x86_64.tar.xz
+          tar -xvf openwrt-sdk-armvirt-64_gcc-10.3.0_musl.Linux-x86_64.tar.xz
+          export SDK_PATH=$(pwd)/openwrt-sdk-armvirt-64*/staging_dir/toolchain-arm_cortex-a53_gcc-10.3.0_musl/bin
           export PATH=$SDK_PATH:$PATH
           echo "SDK_PATH set to: $SDK_PATH"
 
-      # Шаг 4: Обновление фидов и установка зависимостей OpenWrt
+      # Обновление фидов и установка зависимостей
       - name: Update feeds and install dependencies
         run: |
           ./openwrt-sdk-armvirt-64*/scripts/feeds update -a
           ./openwrt-sdk-armvirt-64*/scripts/feeds install -a
 
-      # Шаг 5: Создание конфигурации OpenWrt (можно использовать стандартный конфиг или дефолтный)
+      # Создание конфигурации
       - name: Create OpenWrt configuration
         run: |
-          # Создаем конфигурацию по умолчанию
           make defconfig
-          # Печатаем конфигурацию для диагностики
           cat .config
 
-      # Шаг 6: Сборка пакета
+      # Сборка пакета для aarch64
       - name: Build OpenWrt package for aarch64
         run: |
           make package/feeds/packages/your-package
-          # Проверим ошибки компиляции
           if [ $? -ne 0 ]; then
             echo "Build failed!" && exit 1
           fi
 
-      # Шаг 7: Упаковка .ipk файла
+      # Упаковка в .ipk и создание архива
       - name: Package OpenWrt build for aarch64
         run: |
           cp -r ./build_dir/target-arm_cortex-a53*/your-package.ipk ./build/
           zip -r your-package-aarch64-openwrt.zip ./build/your-package.ipk
 
-      # Шаг 8: Загрузка артефакта
+      # Загрузка артефактов
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: openwrt-aarch64-builds
           path: build/your-package-aarch64-openwrt.zip
+
