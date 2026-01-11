@@ -1,175 +1,39 @@
-name: Build GUI.for.SingBox
-
-on:
-  push:
-    tags:
-      - "v*"
-
-permissions:
-  contents: write
-
 jobs:
-  Build-Frontend:
-    runs-on: ubuntu-latest
-    if: github.repository == 'GUI-for-Cores/GUI.for.SingBox'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: latest
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "latest"
-          cache: "pnpm"
-          cache-dependency-path: frontend/pnpm-lock.yaml
-      - run: |
-          cd frontend
-          pnpm install --frozen-lockfile
-          pnpm build-only
-      - uses: actions/upload-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist
-
-  Build-Windows:
-    needs: Build-Frontend
-    runs-on: windows-latest
-    env:
-      APP_NAME: GUI.for.SingBox
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          check-latest: true
-      - run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
-      - uses: actions/download-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist
-
-      - name: Build & Pack Windows
-        shell: pwsh
-        run: |
-          function Build-And-Pack {
-            param([string]$arch)
-            $env:GOOS="windows"
-            $env:GOARCH=$arch
-
-            Write-Host "==> Building Windows $arch..."
-            ~/go/bin/wails build -m -s -trimpath -skipbindings -devtools -tags webkit2_41 -o "$env:APP_NAME.exe"
-
-            cd build/bin
-            $zipName = "$env:APP_NAME-windows-$arch.zip"
-            Compress-Archive -Path "$env:APP_NAME.exe" -DestinationPath $zipName -Force
-            cd ../..
-          }
-
-          $arches = @("amd64","arm64","386")
-          foreach ($arch in $arches) { Build-And-Pack $arch }
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-builds
-          path: build/bin/*.zip
-
-  Build-macOS:
-    needs: Build-Frontend
-    runs-on: macos-latest
-    env:
-      APP_NAME: GUI.for.SingBox
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          check-latest: true
-      - run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
-      - uses: actions/download-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist
-      - run: |
-          go mod vendor
-          sed -i "" "s/\[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular\]/[NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory]/g" vendor/github.com/wailsapp/wails/v2/internal/frontend/desktop/darwin/AppDelegate.m
-
-      - name: Build & Pack macOS
-        run: |
-          build_and_pack() {
-            arch=$1
-            export GOOS=darwin GOARCH=$arch
-
-            echo "==> Building macOS $arch..."
-            ~/go/bin/wails build -m -s -trimpath -skipbindings -devtools -tags webkit2_41 -o $APP_NAME.exe
-
-            cd build/bin
-            zip -q -r $APP_NAME-darwin-$arch.zip $APP_NAME.app
-            cd ../..
-          }
-
-          for arch in amd64 arm64; do build_and_pack $arch; done
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-builds
-          path: build/bin/*.zip
-
-  Build-Linux:
-    needs: Build-Frontend
+  Build-OpenWrt:
     runs-on: ubuntu-latest
     env:
       APP_NAME: GUI.for.SingBox
     steps:
+      # Шаг 1: Клонируем репозиторий с исходниками
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          check-latest: true
-      - run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
-      - uses: actions/download-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist
-      - run: |
-          sudo apt-get update
-          sudo apt-get install libgtk-3-dev libwebkit2gtk-4.1-dev
 
-      - name: Build & Pack Linux
+      # Шаг 2: Скачиваем OpenWrt SDK для aarch64
+      - name: Download OpenWrt SDK for aarch64
         run: |
-          build_and_pack() {
-            arch=$1
-            export GOOS=linux GOARCH=$arch
+          wget https://downloads.openwrt.org/snapshots/targets/armvirt/64/openwrt-sdk-armvirt-64_gcc-8.4.0_musl.Linux-x86_64.tar.xz
+          tar -xvf openwrt-sdk-armvirt-64_gcc-8.4.0_musl.Linux-x86_64.tar.xz
+          export PATH=$PWD/openwrt-sdk-armvirt-64*/staging_dir/toolchain-arm_cortex-a53_gcc-8.4.0_musl/bin:$PATH
 
-            echo "==> Building Linux $arch..."
-            ~/go/bin/wails build -m -s -trimpath -skipbindings -devtools -tags webkit2_41 -o $APP_NAME.exe
+      # Шаг 3: Настроим OpenWrt build system
+      - name: Set up OpenWrt build system
+        run: |
+          ./openwrt-sdk-armvirt-64*/scripts/feeds update -a
+          ./openwrt-sdk-armvirt-64*/scripts/feeds install -a
+          make menuconfig
+          
+      # Шаг 4: Сборка пакета для aarch64
+      - name: Build OpenWrt package for aarch64
+        run: |
+          make package/feeds/packages/your-package
 
-            cd build/bin
-            mv $APP_NAME.exe $APP_NAME
-            zip $APP_NAME-linux-$arch.zip $APP_NAME
-            cd ../..
-          }
+      # Шаг 5: Упаковка в .ipk и создание архива
+      - name: Package OpenWrt build for aarch64
+        run: |
+          cp -r ./build_dir/target-arm_cortex-a53*/your-package.ipk ./build/
+          zip -r your-package-aarch64-openwrt.zip ./build/your-package.ipk
 
-          build_and_pack amd64
-
+      # Шаг 6: Загрузка артефакта (собранного пакета)
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-builds
-          path: build/bin/*.zip
-
-  Release:
-    needs: [Build-Windows, Build-macOS, Build-Linux]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: release-assets
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          files: release-assets/**/*.zip
-          draft: false
-          prerelease: false
-          body: |
-            Auto-generated release from GitHub Actions.
+          name: openwrt-aarch64-builds
+          path: build/your-package-aarch64-openwrt.zip
